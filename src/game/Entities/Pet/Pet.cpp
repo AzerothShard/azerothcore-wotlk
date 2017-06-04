@@ -770,19 +770,22 @@ bool Guardian::InitStatsForLevel(uint8 petlevel)
         }
         case SUMMON_PET:
         {
-            SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(petlevel - (petlevel / 4)));
-            SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(petlevel + (petlevel / 4)));
+
+            if (pInfo)
+            {
+                SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(pInfo->min_dmg));
+                SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(pInfo->max_dmg));
+            }
+            else
+            {
+                SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(petlevel - (petlevel / 4)));
+                SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(petlevel + (petlevel / 4)));
+            }
 
             switch(GetEntry())
             {
                 case NPC_FELGUARD:
                 {
-                    float highAmt = petlevel / 11.0f;
-                    float lowAmt = petlevel / 12.0f;
-
-                    SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, lowAmt*lowAmt*lowAmt);
-                    SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, highAmt*highAmt*highAmt);
-
                     // xinef: Glyph of Felguard, so ugly im crying... no appropriate spell
                     if (AuraEffect* aurEff = m_owner->GetAuraEffectDummy(SPELL_GLYPH_OF_FELGUARD))
                         SetModifierValue(UNIT_MOD_ATTACK_POWER, TOTAL_PCT, 1.0f + float(aurEff->GetAmount() / 100.0f));
@@ -959,7 +962,12 @@ bool Guardian::InitStatsForLevel(uint8 petlevel)
                 {
                     AddAura(SPELL_HUNTER_PET_SCALING_04, this);
                     AddAura(SPELL_DK_PET_SCALING_01, this);
+                    AddAura(SPELL_DK_PET_SCALING_02, this);
+                    AddAura(SPELL_DK_PET_SCALING_03, this);
                     AddAura(SPELL_PET_AVOIDANCE, this);
+
+                    SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(petlevel - (petlevel / 4)));
+                    SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(petlevel + (petlevel / 4)));
                     break;
                 }
                 case NPC_GENERIC_IMP:
@@ -1212,6 +1220,15 @@ void Pet::_LoadAuras(PreparedQueryResult result, uint32 timediff)
                 sLog->outError("Unknown aura (spellid %u), ignore.", spellid);
                 continue;
             }
+
+            // avoid higher level auras if any, and adjust
+            SpellInfo const* scaledSpellInfo = spellInfo->GetAuraRankForLevel(getLevel());
+            if (scaledSpellInfo != spellInfo)
+                spellInfo = scaledSpellInfo;
+
+            // again after level check
+            if (!spellInfo)
+                continue;
 
             // negative effects should continue counting down after logout
             if (remaintime != -1 && !spellInfo->IsPositive())

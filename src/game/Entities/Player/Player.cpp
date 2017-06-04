@@ -73,6 +73,7 @@
 #include "PoolMgr.h"
 #include "SavingSystem.h"
 #include "TicketMgr.h"
+#include "ScriptMgr.h"
 
 #define ZONE_UPDATE_INTERVAL (2*IN_MILLISECONDS)
 
@@ -7308,6 +7309,28 @@ bool Player::RewardHonor(Unit* uVictim, uint32 groupsize, int32 honor, bool awar
                 GiveXP(uint32(honor*(3+getLevel()*0.30f)), NULL);   
         }
 
+    if (sWorld->getBoolConfig(CONFIG_PVP_TOKEN_ENABLE))
+    {
+        if (!uVictim || uVictim == this || uVictim->HasAuraType(SPELL_AURA_NO_PVP_CREDIT))
+            return true;
+
+        if (uVictim->GetTypeId() == TYPEID_PLAYER)
+        {
+            // Check if allowed to receive it in current map
+            uint8 MapType = sWorld->getIntConfig(CONFIG_PVP_TOKEN_MAP_TYPE);
+            if ((MapType == 1 && !InBattleground() && !IsFFAPvP())
+                || (MapType == 2 && !IsFFAPvP())
+                || (MapType == 3 && !InBattleground()))
+                return true;
+
+            uint32 itemID = sWorld->getIntConfig(CONFIG_PVP_TOKEN_ID);
+            int32 count = sWorld->getIntConfig(CONFIG_PVP_TOKEN_COUNT);
+
+            if (AddItem(itemID, count))
+                ChatHandler(GetSession()).PSendSysMessage("You have been awarded a token for slaying another player.");
+        }
+    }
+    
     return true;
 }
 
@@ -12657,6 +12680,7 @@ Item* Player::EquipItem(uint16 pos, Item* pItem, bool update)
     UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_EQUIP_ITEM, pItem->GetEntry());
     UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_EQUIP_EPIC_ITEM, pItem->GetEntry(), slot);
 
+    sScriptMgr->OnEquip(this, pItem, bag, slot, update);
     return pItem;
 }
 
@@ -12682,7 +12706,7 @@ void Player::QuickEquipItem(uint16 pos, Item* pItem)
 }
 
 void Player::SetVisibleItemSlot(uint8 slot, Item* pItem)
-{ 
+{
     if (pItem)
     {
         SetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + (slot * 2), pItem->GetEntry());
@@ -12694,6 +12718,8 @@ void Player::SetVisibleItemSlot(uint8 slot, Item* pItem)
         SetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + (slot * 2), 0);
         SetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENCHANTMENT + (slot * 2), 0);
     }
+
+    sScriptMgr->OnAfterPlayerSetVisibleItemSlot(this, slot, pItem);
 }
 
 void Player::VisualizeItem(uint8 slot, Item* pItem)
@@ -12818,6 +12844,8 @@ void Player::MoveItemFromInventory(uint8 bag, uint8 slot, bool update)
             it->RemoveFromWorld();
             it->DestroyForPlayer(this);
         }
+
+        sScriptMgr->OnAfterPlayerMoveItemFromInventory(this,it,bag,slot,update);
     }
 }
 
@@ -14682,7 +14710,21 @@ void Player::PrepareGossipMenu(WorldObject* source, uint32 menuId /*= 0*/, bool 
 
         if (canTalk)
         {
-            menu->GetGossipMenu().AddMenuItem(itr->second.OptionIndex, itr->second.OptionIcon, itr->second.OptionText, 0, itr->second.OptionType, itr->second.BoxText, itr->second.BoxMoney, itr->second.BoxCoded);
+            std::string strOptionText = itr->second.OptionText;
+            std::string strBoxText = itr->second.BoxText;
+
+            int32 locale = GetSession()->GetSessionDbLocaleIndex();
+            if (locale >= 0)
+            {
+                uint32 idxEntry = MAKE_PAIR32(menuId, itr->second.OptionIndex);
+                if (GossipMenuItemsLocale const* no = sObjectMgr->GetGossipMenuItemsLocale(idxEntry))
+                {
+                    ObjectMgr::GetLocaleString(no->OptionText, locale, strOptionText);
+                    ObjectMgr::GetLocaleString(no->BoxText, locale, strBoxText);
+                }
+            }
+
+            menu->GetGossipMenu().AddMenuItem(itr->second.OptionIndex, itr->second.OptionIcon, strOptionText, 0, itr->second.OptionType, strBoxText, itr->second.BoxMoney, itr->second.BoxCoded);
             menu->GetGossipMenu().AddGossipMenuItemData(itr->second.OptionIndex, itr->second.ActionMenuId, itr->second.ActionPoiId);
         }
     }
@@ -15028,10 +15070,20 @@ void Player::SendPreparedQuest(uint64 guid)
                 if (!gossiptext->Options[0].Text_0.empty())
                 {
                     title = gossiptext->Options[0].Text_0;
+
+                    int loc_idx = GetSession()->GetSessionDbLocaleIndex();
+                    if (loc_idx >= 0)
+                        if (NpcTextLocale const* nl = sObjectMgr->GetNpcTextLocale(textid))
+                            ObjectMgr::GetLocaleString(nl->Text_0[0], loc_idx, title);
                 }
                 else
                 {
                     title = gossiptext->Options[0].Text_1;
+
+                    int loc_idx = GetSession()->GetSessionDbLocaleIndex();
+                    if (loc_idx >= 0)
+                        if (NpcTextLocale const* nl = sObjectMgr->GetNpcTextLocale(textid))
+                            ObjectMgr::GetLocaleString(nl->Text_1[0], loc_idx, title);
                 }
             }
         }
@@ -15496,6 +15548,8 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
             {
                 Item* item = StoreNewItem(dest, itemId, true, Item::GenerateItemRandomPropertyId(itemId));
                 SendNewItem(item, quest->RewardChoiceItemCount[reward], true, false);
+                
+                sScriptMgr->OnQuestRewardItem(this, item, quest->RewardChoiceItemCount[reward]);
             }
             else
                 problematicItems.push_back(std::pair<uint32, uint32>(itemId, quest->RewardChoiceItemCount[reward]));
@@ -15513,6 +15567,8 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
                 {
                     Item* item = StoreNewItem(dest, itemId, true, Item::GenerateItemRandomPropertyId(itemId));
                     SendNewItem(item, quest->RewardItemIdCount[i], true, false);
+                    
+                    sScriptMgr->OnQuestRewardItem(this, item, quest->RewardItemIdCount[i]);
                 }
                 else
                     problematicItems.push_back(std::pair<uint32, uint32>(itemId, quest->RewardItemIdCount[i]));
@@ -17062,6 +17118,14 @@ void Player::SendQuestConfirmAccept(const Quest* quest, Player* pReceiver)
 { 
     if (pReceiver)
     {
+        //load locale from db
+        std::string strTitle = quest->GetTitle();
+
+        int loc_idx = pReceiver->GetSession()->GetSessionDbLocaleIndex();
+        if (loc_idx >= 0)
+            if (const QuestLocale* pLocale = sObjectMgr->GetQuestLocale(quest->GetQuestId()))
+                ObjectMgr::GetLocaleString(pLocale->Title, loc_idx, strTitle);
+			
         WorldPacket data(SMSG_QUEST_CONFIRM_ACCEPT, (4 + quest->GetTitle().size() + 8));
         data << uint32(quest->GetQuestId());
         data << quest->GetTitle();
@@ -17755,6 +17819,8 @@ bool Player::LoadFromDB(uint32 guid, SQLQueryHolder *holder)
     InitGlyphsForLevel();
     InitTaxiNodesForLevel();
     InitRunes();
+
+    sScriptMgr->OnPlayerLoadFromDB(this);
 
     // make sure the unit is considered out of combat for proper loading
     ClearInCombat();
@@ -21534,6 +21600,12 @@ inline bool Player::_StoreOrEquipNewItem(uint32 vendorslot, uint32 item, uint8 c
 // Return true is the bought item has a max count to force refresh of window by caller
 bool Player::BuyItemFromVendorSlot(uint64 vendorguid, uint32 vendorslot, uint32 item, uint8 count, uint8 bag, uint8 slot)
 { 
+    sScriptMgr->OnBeforeBuyItemFromVendor(this, vendorguid,vendorslot,item,count,bag,slot);
+
+    // this check can be used from the hook to implement a custom vendor process
+    if (item == 0)
+        return true;
+
     // cheating attempt
     if (count < 1) count = 1;
 
@@ -24738,6 +24810,8 @@ void Player::StoreLootItem(uint8 lootSlot, Loot* loot)
         // LootItem is being removed (looted) from the container, delete it from the DB.
         if (loot->containerId > 0)
             sLootItemStorage->RemoveStoredLootItem(loot->containerId, item->itemid, item->count);
+        
+        sScriptMgr->OnLootItem(this, newitem, item->count, this->GetLootGUID());
     }
     else
         SendEquipError(msg, NULL, NULL, item->itemid);
