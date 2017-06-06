@@ -73,6 +73,7 @@
 #include "PoolMgr.h"
 #include "SavingSystem.h"
 #include "TicketMgr.h"
+#include "ScriptMgr.h"
 
 #define ZONE_UPDATE_INTERVAL (2*IN_MILLISECONDS)
 
@@ -7312,6 +7313,28 @@ bool Player::RewardHonor(Unit* uVictim, uint32 groupsize, int32 honor, bool awar
                 GiveXP(uint32(honor*(3+getLevel()*0.30f)), NULL);   
         }
 
+    if (sWorld->getBoolConfig(CONFIG_PVP_TOKEN_ENABLE))
+    {
+        if (!uVictim || uVictim == this || uVictim->HasAuraType(SPELL_AURA_NO_PVP_CREDIT))
+            return true;
+
+        if (uVictim->GetTypeId() == TYPEID_PLAYER)
+        {
+            // Check if allowed to receive it in current map
+            uint8 MapType = sWorld->getIntConfig(CONFIG_PVP_TOKEN_MAP_TYPE);
+            if ((MapType == 1 && !InBattleground() && !IsFFAPvP())
+                || (MapType == 2 && !IsFFAPvP())
+                || (MapType == 3 && !InBattleground()))
+                return true;
+
+            uint32 itemID = sWorld->getIntConfig(CONFIG_PVP_TOKEN_ID);
+            int32 count = sWorld->getIntConfig(CONFIG_PVP_TOKEN_COUNT);
+
+            if (AddItem(itemID, count))
+                ChatHandler(GetSession()).PSendSysMessage("You have been awarded a token for slaying another player.");
+        }
+    }
+    
     return true;
 }
 
@@ -14691,7 +14714,21 @@ void Player::PrepareGossipMenu(WorldObject* source, uint32 menuId /*= 0*/, bool 
 
         if (canTalk)
         {
-            menu->GetGossipMenu().AddMenuItem(itr->second.OptionIndex, itr->second.OptionIcon, itr->second.OptionText, 0, itr->second.OptionType, itr->second.BoxText, itr->second.BoxMoney, itr->second.BoxCoded);
+            std::string strOptionText = itr->second.OptionText;
+            std::string strBoxText = itr->second.BoxText;
+
+            int32 locale = GetSession()->GetSessionDbLocaleIndex();
+            if (locale >= 0)
+            {
+                uint32 idxEntry = MAKE_PAIR32(menuId, itr->second.OptionIndex);
+                if (GossipMenuItemsLocale const* no = sObjectMgr->GetGossipMenuItemsLocale(idxEntry))
+                {
+                    ObjectMgr::GetLocaleString(no->OptionText, locale, strOptionText);
+                    ObjectMgr::GetLocaleString(no->BoxText, locale, strBoxText);
+                }
+            }
+
+            menu->GetGossipMenu().AddMenuItem(itr->second.OptionIndex, itr->second.OptionIcon, strOptionText, 0, itr->second.OptionType, strBoxText, itr->second.BoxMoney, itr->second.BoxCoded);
             menu->GetGossipMenu().AddGossipMenuItemData(itr->second.OptionIndex, itr->second.ActionMenuId, itr->second.ActionPoiId);
         }
     }
@@ -15037,10 +15074,20 @@ void Player::SendPreparedQuest(uint64 guid)
                 if (!gossiptext->Options[0].Text_0.empty())
                 {
                     title = gossiptext->Options[0].Text_0;
+
+                    int loc_idx = GetSession()->GetSessionDbLocaleIndex();
+                    if (loc_idx >= 0)
+                        if (NpcTextLocale const* nl = sObjectMgr->GetNpcTextLocale(textid))
+                            ObjectMgr::GetLocaleString(nl->Text_0[0], loc_idx, title);
                 }
                 else
                 {
                     title = gossiptext->Options[0].Text_1;
+
+                    int loc_idx = GetSession()->GetSessionDbLocaleIndex();
+                    if (loc_idx >= 0)
+                        if (NpcTextLocale const* nl = sObjectMgr->GetNpcTextLocale(textid))
+                            ObjectMgr::GetLocaleString(nl->Text_1[0], loc_idx, title);
                 }
             }
         }
@@ -17776,6 +17823,8 @@ bool Player::LoadFromDB(uint32 guid, SQLQueryHolder *holder)
     InitGlyphsForLevel();
     InitTaxiNodesForLevel();
     InitRunes();
+
+    sScriptMgr->OnPlayerLoadFromDB(this);
 
     // make sure the unit is considered out of combat for proper loading
     ClearInCombat();
@@ -21555,6 +21604,12 @@ inline bool Player::_StoreOrEquipNewItem(uint32 vendorslot, uint32 item, uint8 c
 // Return true is the bought item has a max count to force refresh of window by caller
 bool Player::BuyItemFromVendorSlot(uint64 vendorguid, uint32 vendorslot, uint32 item, uint8 count, uint8 bag, uint8 slot)
 { 
+    sScriptMgr->OnBeforeBuyItemFromVendor(this, vendorguid,vendorslot,item,count,bag,slot);
+
+    // this check can be used from the hook to implement a custom vendor process
+    if (item == 0)
+        return true;
+
     // cheating attempt
     if (count < 1) count = 1;
 

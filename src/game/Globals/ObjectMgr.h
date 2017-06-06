@@ -488,12 +488,14 @@ typedef std::pair<QuestRelations::const_iterator, QuestRelations::const_iterator
 
 struct PetLevelInfo
 {
-    PetLevelInfo() : health(0), mana(0), armor(0) { for (uint8 i=0; i < MAX_STATS; ++i) stats[i] = 0; }
+    PetLevelInfo() : health(0), mana(0), armor(0), min_dmg(0), max_dmg(0) { for (uint8 i=0; i < MAX_STATS; ++i) stats[i] = 0; }
 
     uint16 stats[MAX_STATS];
     uint16 health;
     uint16 mana;
-    uint16 armor;
+    uint32 armor;
+    uint16 min_dmg;
+    uint16 max_dmg;
 };
 
 struct MailLevelReward
@@ -1158,10 +1160,22 @@ class ObjectMgr
             if (itr == _questLocaleStore.end()) return NULL;
             return &itr->second;
         }
+        GossipMenuItemsLocale const* GetGossipMenuItemsLocale(uint32 entry) const
+        {
+            GossipMenuItemsLocaleContainer::const_iterator itr = _gossipMenuItemsLocaleStore.find(entry);
+            if (itr == _gossipMenuItemsLocaleStore.end()) return NULL;
+            return &itr->second;
+        }
         PointOfInterestLocale const* GetPointOfInterestLocale(uint32 poi_id) const
         {
             PointOfInterestLocaleContainer::const_iterator itr = _pointOfInterestLocaleStore.find(poi_id);
             if (itr == _pointOfInterestLocaleStore.end()) return NULL;
+            return &itr->second;
+        }
+        NpcTextLocale const* GetNpcTextLocale(uint32 entry) const
+        {
+            NpcTextLocaleContainer::const_iterator itr = _npcTextLocaleStore.find(entry);
+            if (itr == _npcTextLocaleStore.end()) return NULL;
             return &itr->second;
         }
         GameObjectData& NewGOData(uint32 guid) { return _gameObjectDataStore[guid]; }

@@ -1264,6 +1264,11 @@ void ScriptMgr::OnPlayerLogin(Player* player)
     FOREACH_SCRIPT(PlayerScript)->OnLogin(player);
 }
 
+void ScriptMgr::OnPlayerLoadFromDB(Player* player)
+{
+    FOREACH_SCRIPT(PlayerScript)->OnLoadFromDB(player);
+}
+
 void ScriptMgr::OnPlayerLogout(Player* player)
 {
     FOREACH_SCRIPT(PlayerScript)->OnLogout(player);
@@ -1344,14 +1349,14 @@ void ScriptMgr::OnEquip(Player* player, Item* it, uint8 bag, uint8 slot, bool up
     FOREACH_SCRIPT(PlayerScript)->OnEquip(player, it, bag, slot, update);
 }
 
-void ScriptMgr::OnPlayerJoinBG(Player* player, Battleground* bg)
+void ScriptMgr::OnPlayerJoinBG(Player* player)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnPlayerJoinBG(player, bg);
+    FOREACH_SCRIPT(PlayerScript)->OnPlayerJoinBG(player);
 }
 
-void ScriptMgr::OnPlayerJoinArena(Player* player, Battleground* bg)
+void ScriptMgr::OnPlayerJoinArena(Player* player)
 {
-    FOREACH_SCRIPT(PlayerScript)->OnPlayerJoinArena(player, bg);
+    FOREACH_SCRIPT(PlayerScript)->OnPlayerJoinArena(player);
 }
 
 void ScriptMgr::OnLootItem(Player* player, Item* item, uint32 count, uint64 lootguid)
@@ -1475,6 +1480,16 @@ void ScriptMgr::OnBeforeUpdateArenaPoints(ArenaTeam* at, std::map<uint32, uint32
     FOREACH_SCRIPT(GlobalScript)->OnBeforeUpdateArenaPoints(at,ap);
 }
 
+void ScriptMgr::OnAfterRefCount(LootStoreItem* LootStoreItem, uint32 &maxcount)
+{
+    FOREACH_SCRIPT(GlobalScript)->OnAfterRefCount(LootStoreItem, maxcount);
+}
+
+void ScriptMgr::OnBeforeDropAddItem(Player const* player, Loot& loot, LootStoreItem* LootStoreItem)
+{
+    FOREACH_SCRIPT(GlobalScript)->OnBeforeDropAddItem(player, loot, LootStoreItem);
+}
+
 uint32 ScriptMgr::DealDamage(Unit* AttackerUnit, Unit *pVictim, uint32 damage, DamageEffectType damagetype)
 {
     FOR_SCRIPTS_RET(UnitScript, itr, end, damage)
@@ -1515,9 +1530,55 @@ void ScriptMgr::ModifyHealRecieved(Unit* target, Unit* attacker, uint32& damage)
     FOREACH_SCRIPT(UnitScript)->ModifyHealRecieved(target, attacker, damage);
 }
 
+void ScriptMgr::OnBeforeRollMeleeOutcomeAgainst(const Unit* attacker, const Unit* victim, WeaponAttackType attType, int32 &attackerMaxSkillValueForLevel, int32 &victimMaxSkillValueForLevel, int32 &attackerWeaponSkill, int32 &victimDefenseSkill, int32 &crit_chance, int32 &miss_chance, int32 &dodge_chance, int32 &parry_chance, int32 &block_chance)
+{
+    FOREACH_SCRIPT(UnitScript)->OnBeforeRollMeleeOutcomeAgainst(attacker, victim, attType, attackerMaxSkillValueForLevel, victimMaxSkillValueForLevel, attackerWeaponSkill, victimDefenseSkill, crit_chance, miss_chance, dodge_chance, parry_chance, block_chance);
+}
+
 void ScriptMgr::OnPlayerMove(Player* player, MovementInfo movementInfo, uint32 opcode)
 {
     FOREACH_SCRIPT(MovementHandlerScript)->OnPlayerMove(player, movementInfo, opcode);
+}
+
+void ScriptMgr::OnBeforeBuyItemFromVendor(Player* player, uint64 vendorguid, uint32 vendorslot, uint32 &item, uint8 count, uint8 bag, uint8 slot)
+{
+    FOREACH_SCRIPT(PlayerScript)->OnBeforeBuyItemFromVendor(player, vendorguid, vendorslot, item, count, bag, slot);
+}
+
+void ScriptMgr::OnAfterStoreOrEquipNewItem(Player* player, uint32 vendorslot, uint32 &item, uint8 count, uint8 bag, uint8 slot, ItemTemplate const* pProto, Creature* pVendor, VendorItem const* crItem, bool bStore) 
+{
+    FOREACH_SCRIPT(PlayerScript)->OnAfterStoreOrEquipNewItem(player, vendorslot, item, count, bag, slot, pProto, pVendor, crItem, bStore);
+}
+
+
+void ScriptMgr::OnAfterUpdateMaxPower(Player* player, Powers& power, float& value)
+{
+    FOREACH_SCRIPT(PlayerScript)->OnAfterUpdateMaxPower(player, power, value);
+}
+
+void ScriptMgr::OnAfterUpdateMaxHealth(Player* player, float& value)
+{
+    FOREACH_SCRIPT(PlayerScript)->OnAfterUpdateMaxHealth(player, value);
+}
+
+void ScriptMgr::OnBeforeUpdateAttackPowerAndDamage(Player* player, float& level, float& val2, bool ranged)
+{
+    FOREACH_SCRIPT(PlayerScript)->OnBeforeUpdateAttackPowerAndDamage(player, level, val2, ranged);
+}
+
+void ScriptMgr::OnAfterUpdateAttackPowerAndDamage(Player* player, float& level, float& base_attPower, float& attPowerMod, float& attPowerMultiplier, bool ranged)
+{
+    FOREACH_SCRIPT(PlayerScript)->OnAfterUpdateAttackPowerAndDamage(player, level, base_attPower, attPowerMod, attPowerMultiplier, ranged);
+}
+
+void ScriptMgr::OnBeforeInitTalentForLevel(Player* player, uint8& level, uint32& talentPointsForLevel)
+{
+    FOREACH_SCRIPT(PlayerScript)->OnBeforeInitTalentForLevel(player, level, talentPointsForLevel);
+}
+
+void ScriptMgr::OnAfterArenaRatingCalculation(Battleground *const bg, int32 &winnerMatchmakerChange, int32 &loserMatchmakerChange, int32 &winnerChange, int32 &loserChange)
+{
+    FOREACH_SCRIPT(FormulaScript)->OnAfterArenaRatingCalculation(bg, winnerMatchmakerChange, loserMatchmakerChange, winnerChange, loserChange);
 }
 
 AllMapScript::AllMapScript(const char* name)
