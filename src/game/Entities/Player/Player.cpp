@@ -2189,8 +2189,8 @@ void Player::SendTeleportAckPacket()
     GetSession()->SendPacket(&data);
 }
 
-bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientation, uint32 options)
-{ 
+bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientation, uint32 options /*= 0*/, Unit *target /*= nullptr*/)
+{
     if (!MapManager::IsValidMapCoord(mapid, x, y, z, orientation))
     {
         sLog->outError("TeleportTo: invalid map (%d) or invalid coordinates (X: %f, Y: %f, Z: %f, O: %f) given when teleporting player (GUID: %u, name: %s, map: %d, X: %f, Y: %f, Z: %f, O: %f).",
@@ -2287,6 +2287,9 @@ bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientati
     // ObjectAccessor won't find the flag.
     if (duel && GetMapId() != mapid && GetMap()->GetGameObject(GetUInt64Value(PLAYER_DUEL_ARBITER)))
         DuelComplete(DUEL_FLED);
+
+    if (!sScriptMgr->OnBeforePlayerTeleport(this, mapid, x, y, z, orientation, options, target))
+        return false;
 
     if (GetMapId() == mapid)
     {
@@ -3026,11 +3029,7 @@ void Player::SetGameMaster(bool on)
     else
     {
         // restore phase
-        uint32 newPhase = 0;
-        AuraEffectList const& phases = GetAuraEffectsByType(SPELL_AURA_PHASE);
-        if (!phases.empty())
-            for (AuraEffectList::const_iterator itr = phases.begin(); itr != phases.end(); ++itr)
-                newPhase |= (*itr)->GetMiscValue();
+        uint32 newPhase = GetPhaseByAuras();
 
         if (!newPhase)
             newPhase = PHASEMASK_NORMAL;
@@ -3065,14 +3064,21 @@ void Player::SetGameMaster(bool on)
 }
 
 void Player::SetGMVisible(bool on)
-{ 
+{
+    const uint32 VISUAL_AURA = 37800;
+
     if (on)
     {
+        if (HasAura(VISUAL_AURA, 0))
+            RemoveAurasDueToSpell(VISUAL_AURA);
+
         m_ExtraFlags &= ~PLAYER_EXTRA_GM_INVISIBLE;         //remove flag
         m_serverSideVisibility.SetValue(SERVERSIDE_VISIBILITY_GM, SEC_PLAYER);
     }
     else
     {
+        AddAura(VISUAL_AURA, this);
+
         m_ExtraFlags |= PLAYER_EXTRA_GM_INVISIBLE;          //add flag
 
         SetAcceptWhispers(false);
@@ -5290,7 +5296,7 @@ void Player::CreateCorpse()
         return;
     }
 
-    _uf = GetUInt32Value(UNIT_FIELD_BYTES_0);
+    _uf = getRace();
     _pb = GetUInt32Value(PLAYER_BYTES);
     _pb2 = GetUInt32Value(PLAYER_BYTES_2);
 
@@ -6933,7 +6939,7 @@ void Player::CheckAreaExploreAndOutdoor()
     {
         SetUInt32Value(PLAYER_EXPLORED_ZONES_1 + offset, (uint32)(currFields | val));
 
-        UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_EXPLORE_AREA, GetAreaId());
+        UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_EXPLORE_AREA, areaId);
 
         if (areaEntry->area_level > 0)
         {
@@ -7535,6 +7541,8 @@ void Player::UpdateArea(uint32 newArea)
     // pussywizard: inform instance, needed for Icecrown Citadel
     if (InstanceScript* instance = GetInstanceScript())
         instance->OnPlayerAreaUpdate(this, m_areaUpdateId, newArea);
+    
+    sScriptMgr->OnPlayerUpdateArea(this, m_areaUpdateId, newArea);
 
     // FFA_PVP flags are area and not zone id dependent
     // so apply them accordingly
@@ -9264,6 +9272,12 @@ void Player::SendLoot(uint64 guid, LootType loot_type)
                 loot->clear();
                 loot->FillLoot(creature->GetCreatureTemplate()->SkinLootId, LootTemplates_Skinning, this, true);
                 permission = OWNER_PERMISSION;
+
+                //Inform instance if creature is skinned.
+                if (InstanceScript* mapInstance = creature->GetInstanceScript())
+                {
+                    mapInstance->CreatureLooted(creature, LOOT_SKINNING);
+                }
 
                 // Xinef: Set new loot recipient
                 creature->SetLootRecipient(this, false);
@@ -20743,7 +20757,7 @@ void Player::Say(const std::string& text, const uint32 language)
     sScriptMgr->OnPlayerChat(this, CHAT_MSG_SAY, language, _text);
 
     WorldPacket data;
-    ChatHandler::BuildChatPacket(data, CHAT_MSG_SAY, Language(language), this, this, text);
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_SAY, Language(language), this, this, _text);
     SendMessageToSetInRange(&data, sWorld->getFloatConfig(CONFIG_LISTEN_RANGE_SAY), true);
 }
 
@@ -20753,7 +20767,7 @@ void Player::Yell(const std::string& text, const uint32 language)
     sScriptMgr->OnPlayerChat(this, CHAT_MSG_YELL, language, _text);
 
     WorldPacket data;
-    ChatHandler::BuildChatPacket(data, CHAT_MSG_YELL, Language(language), this, this, text);
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_YELL, Language(language), this, this, _text);
     SendMessageToSetInRange(&data, sWorld->getFloatConfig(CONFIG_LISTEN_RANGE_YELL), true);
 }
 
@@ -20763,7 +20777,7 @@ void Player::TextEmote(const std::string& text)
     sScriptMgr->OnPlayerChat(this, CHAT_MSG_EMOTE, LANG_UNIVERSAL, _text);
 
     WorldPacket data;
-    ChatHandler::BuildChatPacket(data, CHAT_MSG_EMOTE, LANG_UNIVERSAL, this, this, text);
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_EMOTE, LANG_UNIVERSAL, this, this, _text);
     SendMessageToSetInRange(&data, sWorld->getFloatConfig(CONFIG_LISTEN_RANGE_TEXTEMOTE), true, !sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CHAT));
 }
 
@@ -20780,14 +20794,14 @@ void Player::Whisper(const std::string& text, uint32 language, uint64 receiver)
     sScriptMgr->OnPlayerChat(this, CHAT_MSG_WHISPER, language, _text, rPlayer);
 
     WorldPacket data;
-    ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, Language(language), this, this, text);
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, Language(language), this, this, _text);
     rPlayer->GetSession()->SendPacket(&data);
 
     // rest stuff shouldn't happen in case of addon message
     if (isAddonMessage)
         return;
 
-    ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER_INFORM, Language(language), rPlayer, rPlayer, text);
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER_INFORM, Language(language), rPlayer, rPlayer, _text);
     GetSession()->SendPacket(&data);
 
     if (!isAcceptWhispers() && !IsGameMaster() && !rPlayer->IsGameMaster())
@@ -22665,19 +22679,30 @@ bool Player::IsVisibleGloballyFor(Player const* u) const
 }
 
 template<class T>
-inline void UpdateVisibilityOf_helper(T*  /*target*/, std::vector<Unit*>& /*v*/)
+inline void UpdateVisibilityOf_helper(Player::ClientGUIDs& s64, T* target, std::vector<Unit*>& /*v*/)
 {
+    s64.insert(target->GetGUID());
 }
 
 template<>
-inline void UpdateVisibilityOf_helper(Creature* target, std::vector<Unit*>& v)
+inline void UpdateVisibilityOf_helper(Player::ClientGUIDs& s64, GameObject* target, std::vector<Unit*>& /*v*/)
 {
+    // @HACK: This is to prevent objects like deeprun tram from disappearing when player moves far from its spawn point while riding it
+    if ((target->GetGOInfo()->type != GAMEOBJECT_TYPE_TRANSPORT))
+        s64.insert(target->GetGUID());
+}
+
+template<>
+inline void UpdateVisibilityOf_helper(Player::ClientGUIDs& s64, Creature* target, std::vector<Unit*>& v)
+{
+    s64.insert(target->GetGUID());
     v.push_back(target);
 }
 
 template<>
-inline void UpdateVisibilityOf_helper(Player* target, std::vector<Unit*>& v)
+inline void UpdateVisibilityOf_helper(Player::ClientGUIDs& s64, Player* target, std::vector<Unit*>& v)
 {
+    s64.insert(target->GetGUID());
     v.push_back(target);
 }
 
@@ -22791,9 +22816,7 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data, std::vector<Unit*>&
         if (CanSeeOrDetect(target, false, true))
         {
             target->BuildCreateUpdateBlockForPlayer(&data, this);
-            m_clientGUIDs.insert(target->GetGUID());
-
-            UpdateVisibilityOf_helper(target, visibleNow);
+            UpdateVisibilityOf_helper(m_clientGUIDs, target, visibleNow);
         }
     }
 }
@@ -23617,8 +23640,8 @@ void Player::UpdateForQuestWorldObjects()
     GetSession()->SendPacket(&packet);
 }
 
-void Player::SummonIfPossible(bool agree)
-{ 
+void Player::SummonIfPossible(bool agree, uint32 summoner_guid)
+{
     if (!agree)
     {
         m_summon_expire = 0;
@@ -23638,7 +23661,7 @@ void Player::SummonIfPossible(bool agree)
 
     UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_ACCEPTED_SUMMONINGS, 1);
 
-    TeleportTo(m_summon_mapid, m_summon_x, m_summon_y, m_summon_z, GetOrientation());
+    TeleportTo(m_summon_mapid, m_summon_x, m_summon_y, m_summon_z, GetOrientation(), 0, ObjectAccessor::FindPlayer(summoner_guid));
 }
 
 void Player::RemoveItemDurations(Item* item)
@@ -25233,22 +25256,19 @@ void Player::_LoadSkills(PreparedQueryResult result)
 }
 
 uint32 Player::GetPhaseMaskForSpawn() const
-{ 
-    uint32 phase = PHASEMASK_NORMAL;
-    if (!IsGameMaster())
-        phase = GetPhaseMask();
-    else
-    {
-        AuraEffectList const& phases = GetAuraEffectsByType(SPELL_AURA_PHASE);
-        if (!phases.empty())
-            phase = phases.front()->GetMiscValue();
-    }
+{
+    uint32 phase = IsGameMaster() ? GetPhaseByAuras() : GetPhaseMask();
+
+    if (!phase)
+        phase = PHASEMASK_NORMAL;
+
 
     // some aura phases include 1 normal map in addition to phase itself
-    if (uint32 n_phase = phase & ~PHASEMASK_NORMAL)
+    uint32 n_phase = phase & ~PHASEMASK_NORMAL;
+    if (n_phase > 0)
         return n_phase;
 
-    return PHASEMASK_NORMAL;
+    return phase;
 }
 
 InventoryResult Player::CanEquipUniqueItem(Item* pItem, uint8 eslot, uint32 limit_count) const

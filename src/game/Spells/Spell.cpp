@@ -287,6 +287,16 @@ Corpse* SpellCastTargets::GetCorpseTarget() const
     return NULL;
 }
 
+void SpellCastTargets::SetCorpseTarget(Corpse* target)
+{
+    if (!target)
+        return;
+
+    m_objectTarget = target;
+    m_objectTargetGUID = target->GetGUID();
+    m_targetMask |= TARGET_FLAG_CORPSE_MASK;
+}
+
 WorldObject* SpellCastTargets::GetObjectTarget() const
 {
     return m_objectTarget;
@@ -1306,7 +1316,8 @@ void Spell::SelectImplicitCasterDestTargets(SpellEffIndex effIndex, SpellImplici
              float dis = (float)rand_norm() * (max_dis - min_dis) + min_dis;
              float x, y, z, angle;
              angle = (float)rand_norm() * static_cast<float>(M_PI * 35.0f / 180.0f) - static_cast<float>(M_PI * 17.5f / 180.0f);
-             m_caster->GetClosePoint(x, y, z, DEFAULT_WORLD_OBJECT_SIZE, dis, angle);
+            //m_caster->GetClosePoint(x, y, z, DEFAULT_WORLD_OBJECT_SIZE, dis, angle); this contains extra code that breaks fishing
+            m_caster->GetNearPoint(m_caster, x, y, z, DEFAULT_WORLD_OBJECT_SIZE, dis, m_caster->GetOrientation() + angle);
 
             float ground = m_caster->GetMap()->GetHeight(m_caster->GetPhaseMask(), x, y, z, true, 120.0f);
             float liquidLevel = VMAP_INVALID_HEIGHT_VALUE;
@@ -2395,6 +2406,23 @@ void Spell::AddUnitTarget(Unit* target, uint32 effectMask, bool checkIfValid /*=
         // Increase time interval for reflected spells by 1.5
         m_caster->m_Events.AddEvent(new ReflectEvent(m_caster->GetGUID(), targetInfo.targetGUID, m_spellInfo), m_caster->m_Events.CalculateTime(targetInfo.timeDelay));
         targetInfo.timeDelay += targetInfo.timeDelay >> 1;
+        
+        // HACK: workaround check for succubus seduction case
+        // TODO: seduction should be casted only on humanoids (not demons)
+        if (m_caster->IsPet())
+        {
+            CreatureTemplate const* ci = sObjectMgr->GetCreatureTemplate(m_caster->GetEntry());
+            switch (ci->family)
+            {
+                case CREATURE_FAMILY_SUCCUBUS:
+                {
+                    if (m_spellInfo->SpellIconID != 694) // Soothing Kiss
+                        cancel();
+                }
+                break;
+                    return;
+            }
+        }
     }
     else
         targetInfo.reflectResult = SPELL_MISS_NONE;
@@ -4545,14 +4573,14 @@ void Spell::WriteAmmoToPacket(WorldPacket* data)
         {
             if (uint32 item_id = m_caster->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID + i))
             {
-                if (ItemEntry const* itemEntry = sItemStore.LookupEntry(item_id))
+                if (ItemTemplate const* itemEntry = sObjectMgr->GetItemTemplate(item_id))
                 {
                     if (itemEntry->Class == ITEM_CLASS_WEAPON)
                     {
                         switch (itemEntry->SubClass)
                         {
                             case ITEM_SUBCLASS_WEAPON_THROWN:
-                                ammoDisplayID = itemEntry->DisplayId;
+                                ammoDisplayID = itemEntry->DisplayInfoID;
                                 ammoInventoryType = itemEntry->InventoryType;
                                 break;
                             case ITEM_SUBCLASS_WEAPON_BOW:

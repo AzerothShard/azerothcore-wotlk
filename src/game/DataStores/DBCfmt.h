@@ -10,6 +10,7 @@
 char const Achievementfmt[] = "niixssssssssssssssssxxxxxxxxxxxxxxxxxxiixixxxxxxxxxxxxxxxxxxii";
 const std::string CustomAchievementfmt="pppaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaapapaaaaaaaaaaaaaaaaaapp";
 const std::string CustomAchievementIndex = "ID";
+char const AchievementCategoryfmt[] = "nixxxxxxxxxxxxxxxxxx";
 char const AchievementCriteriafmt[] = "niiiiiiiixxxxxxxxxxxxxxxxxiiiix";
 char const AreaTableEntryfmt[] = "niiiixxxxxissssssssssssssssxiiiiixxx";
 char const AreaGroupEntryfmt[] = "niiiiiii";
@@ -57,7 +58,6 @@ char const GtOCTRegenHPfmt[] = "f";
 char const GtRegenHPPerSptfmt[] = "f";
 char const GtRegenMPPerSptfmt[] = "f";
 char const Holidaysfmt[] = "niiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiixxsiix";
-char const Itemfmt[] = "niiiiiii";
 char const ItemBagFamilyfmt[] = "nxxxxxxxxxxxxxxxxx";
 char const ItemDisplayTemplateEntryfmt[] = "nxxxxsxxxxxxxxxxxxxxxxxxx";
 //char const ItemCondExtCostsEntryfmt[] = "xiii";
